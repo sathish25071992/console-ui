@@ -9,44 +9,6 @@ import cursor
 lock = threading.Lock()
 
 
-def _get_cursor_position_posix():
-    import termios
-    print("\033[6n", end="", flush=True)
-    fd = sys.stdin.fileno()
-    oldterm = termios.tcgetattr(fd)
-    newattr = termios.tcgetattr(fd)
-    newattr[3] = newattr[3] & ~termios.ICANON & ~termios.ECHO
-    termios.tcsetattr(fd, termios.TCSANOW, newattr)
-    try:
-        sys.stdin.read(2)
-        s = ""
-        while True:
-            c = sys.stdin.read(1)
-            if c == "R":
-                break
-            s += c
-        return tuple(map(int, s.split(";")))
-    except IOError:
-        pass
-
-
-def _get_cursor_position_win():
-    winterm = colorama.winterm.WinTerm()
-    pos = winterm.get_position(handle=colorama.win32.STDOUT)
-    return (pos.Y, pos.X)
-
-
-def get_cursor_position():
-    if os.name == 'nt':
-        return _get_cursor_position_win()
-    elif os.name == 'posix':
-        return _get_cursor_position_posix()
-
-
-def set_cursor_position(y, x):
-    sys.stdout.write("\033[%d;%dH" % (y, x))
-
-
 def cursor_up(x):
     sys.stdout.write("\033[%dA" % x)
 
@@ -60,8 +22,7 @@ def cursor_right(x):
 
 
 def cursor_left(x):
-    for i in range(0, x):
-        sys.stdout.write("\033[D")
+    sys.stdout.write("\033[%dD" % x)
 
 
 def cursor_prev():
@@ -90,12 +51,11 @@ def clear_line():
 
 
 class cui():
-    class element():
-        def __init__(self, message, width, position, widget=None, percentage_required=False):
+    class __element():
+        def __init__(self, message, width, widget=None, percentage_required=False):
             self.message = message
             self.width = width
             self.available_msg_width = width - 10
-            self.position = position
             self.progress = 0
             self.refresh = False
             self.visible = False
@@ -124,13 +84,15 @@ class cui():
         def _update_progress(self, value):
             if (value != -1):
                 x = int((value * self.steps) / 100)
-                for i in range(self.progresspos, x + 1):
+                for _ in range(self.progresspos, x + 1):
                     cursor_leftmost()
                     cursor_right(len(self.message))
-                    self.widget.update(self.refresh, self.progresspos, self.steps, (self.position[0], len(self.message) + 1))
+                    self.widget.update(
+                        self.refresh, self.progresspos, self.steps)
                     self.progresspos += 1
             else:
-                self.widget.update(self.refresh, self.progresspos, self.steps, (self.position[0], len(self.message) + 1))
+                self.widget.update(self.refresh, self.progresspos,
+                                   self.steps)
                 self.progresspos += 1
 
         def update(self, value=-1, message=""):
@@ -143,7 +105,8 @@ class cui():
 
         def _finish(self, msg, success):
             self._update_message(msg)
-            self.widget.finish(msg, self.steps, (self.position[0], len(self.message) + 1), success)
+            self.widget.finish(
+                msg, self.steps, success)
 
         def finish(self, message="", success=True):
             if message == "":
@@ -154,7 +117,7 @@ class cui():
             def __init__(self, marker="<=>"):
                 self.bouncestr = marker
 
-            def update(self, refresh, progresspos, steps, pos):
+            def update(self, refresh, progresspos, steps):
                 # Corecting the steps for bouncer sting length
                 # (since bouncer string will occupy that space so no need to update that part)
                 ori_steps = steps
@@ -182,7 +145,7 @@ class cui():
                     sys.stdout.write(updatebouncestr)
                     sys.stdout.flush()
 
-            def finish(self, pre_msg, steps, pos, success):
+            def finish(self, pre_msg, steps, success):
                 marker = "*" if success == True else "x"
                 sys.stdout.write("[" + marker * steps + "]")
 
@@ -190,14 +153,15 @@ class cui():
             def __init__(self):
                 pass
 
-            def update(self, refresh, progresspos, steps, pos):
+            def update(self, refresh, progresspos, steps):
                 if refresh == True:
-                    sys.stdout.write("[" + "*" * progresspos + " " * (steps - progresspos) + "] ")
+                    sys.stdout.write(
+                        "[" + "*" * progresspos + " " * (steps - progresspos) + "] ")
                 else:
                     cursor_right(progresspos)
                     sys.stdout.write("*")
 
-            def finish(self, msg, steps, pos, success):
+            def finish(self, msg, steps, success):
                 pass
 
     def __init__(self, width, tasks=[], header_required=True):
@@ -249,8 +213,10 @@ class cui():
             time.sleep(0.01)
             if self.tmhdr_required:
                 completed_task = self.noelements - len(tasklist)
-                msg = "# of tasks monitored %d/%d" % (completed_task, len(tasklist) + completed_task)
-                self.tmtask["element"].update(int((completed_task / self.noelements) * 100), message=msg)
+                msg = "# of tasks monitored %d/%d" % (
+                    completed_task, len(tasklist) + completed_task)
+                self.tmtask["element"].update(
+                    int((completed_task / self.noelements) * 100), message=msg)
             if len(tasklist) == 0:
                 if self.tmhdr_required:
                     self.tmtask["element"].finish()
@@ -258,10 +224,12 @@ class cui():
             for task in tasklist:
                 cursor_down(task["id"] + self.taskoffset)
                 cursor_leftmost()
-                task["element"].update(message=task["title"] + " " + task["message"])
+                task["element"].update(
+                    message=task["title"] + " " + task["message"])
                 if not task["thread"].is_alive():
                     cursor_leftmost()
-                    task["element"].finish(task["title"] + " " + task["message"], success=not task["failed"])
+                    task["element"].finish(
+                        task["title"] + " " + task["message"], success=not task["failed"])
                     tasklist.remove(task)
                 cursor_up(task["id"] + self.taskoffset)
                 cursor_leftmost()
@@ -274,23 +242,23 @@ class cui():
             noelements += 1
         sys.stdout.write("\n" * noelements)
         sys.stdout.write("\033[%dA" % noelements)
-        self.uistartpt = (1,1)
 
-        start = 0
-        if self.tmhdr_required:
-            start = 1
+        # start = 0
+        # if self.tmhdr_required:
+        #     start = 1
 
         msg = "# of tasks monitored: %d" % len(self.tasklist)
-        element = self.element(msg, self.width, self.uistartpt, widget=self.element.default_widget())
+        element = self.__element(
+            msg, self.width, widget=self.__element.default_widget())
         self.tmtask = {"func": None, "args": None,
-                        "message": msg, "element": element, "thread": None}
+                       "message": msg, "element": element, "thread": None}
         thread = threading.Thread(
             target=self.__task_manager, args=(self.tasklist,))
         self.tmtask["thread"] = thread
 
         for i in range(0, len(self.tasklist)):
-            element = self.element("task %d: %s" % (
-                i, " starting"), self.width, (self.uistartpt[0] + i + start, self.uistartpt[1]))
+            element = self.__element("task %d: %s" % (
+                i, " starting"), self.width)
             self.tasklist[i]["element"] = element
             self.tasklist[i]["message"] = "starting"
             thread = threading.Thread(
@@ -340,7 +308,8 @@ if __name__ == "__main__":
     cui.register(test, (2,))
     cui.register(test, (2,))
     cui.register(test, (1,), title="custom title")
-    cui.register(test, (4,), title="custom title tooooooooooooooooooooooooooooooooooooooooooooo long")
+    cui.register(
+        test, (4,), title="custom title tooooooooooooooooooooooooooooooooooooooooooooo long")
     cui.start()
     cui.finish()
     cursor.show()
