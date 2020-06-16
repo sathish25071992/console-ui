@@ -6,164 +6,10 @@ import time
 import textwrap
 import cursor
 
-lock = threading.Lock()
-
-
-def cursor_up(x):
-    sys.stdout.write("\033[%dA" % x)
-
-
-def cursor_down(x):
-    sys.stdout.write("\033[%dB" % x)
-
-
-def cursor_right(x):
-    sys.stdout.write("\033[%dC" % x)
-
-
-def cursor_left(x):
-    sys.stdout.write("\033[%dD" % x)
-
-
-def cursor_prev():
-    sys.stdout.write("\033[1F")
-
-
-def cursor_next():
-    sys.stdout.write("\033[1E")
-
-
-def cursor_leftmost():
-    sys.stdout.write("\r")
-
-
-def cursor_save():
-    sys.stdout.write("\033[s")
-
-
-def cursor_restore():
-    sys.stdout.write("\033[u")
-
-
-def clear_line():
-    # Erase the entire line
-    sys.stdout.write("\033[2K")
-
+import console
+from progressbar import progressbar
 
 class cui():
-    class __element():
-        def __init__(self, message, width, widget=None, percentage_required=False):
-            self.message = message
-            self.width = width
-            self.available_msg_width = width - 10
-            self.progress = 0
-            self.refresh = False
-            self.visible = False
-            clear_line()
-            if widget == None:
-                self.widget = self.bounce_widget()
-            else:
-                self.widget = widget
-            self.progresspos = 0
-
-        def _update_message(self, msg):
-            if self.message != msg or self.visible == False:
-                clear_line()
-                shortmsg = textwrap.shorten(
-                    msg, width=self.available_msg_width - 3, placeholder="...")
-                sys.stdout.write(shortmsg)
-                sys.stdout.flush()
-                self.steps = self.width - len(shortmsg) - 2
-                # self.steps = self.width
-                self.message = shortmsg
-                self.visible = True
-                self.refresh = True
-            else:
-                cursor_right(len(self.message))
-
-        def _update_progress(self, value):
-            if (value != -1):
-                x = int((value * self.steps) / 100)
-                for _ in range(self.progresspos, x + 1):
-                    cursor_leftmost()
-                    cursor_right(len(self.message))
-                    self.widget.update(
-                        self.refresh, self.progresspos, self.steps)
-                    self.progresspos += 1
-            else:
-                self.widget.update(self.refresh, self.progresspos,
-                                   self.steps)
-                self.progresspos += 1
-
-        def update(self, value=-1, message=""):
-            lock.acquire()
-            if message == "":
-                message = self.message
-            self._update_message(message)
-            self._update_progress(value)
-            lock.release()
-
-        def _finish(self, msg, success):
-            self._update_message(msg)
-            self.widget.finish(
-                msg, self.steps, success)
-
-        def finish(self, message="", success=True):
-            if message == "":
-                message = self.message
-            self._finish(message, success)
-
-        class bounce_widget():
-            def __init__(self, marker="<=>"):
-                self.bouncestr = marker
-
-            def update(self, refresh, progresspos, steps):
-                # Corecting the steps for bouncer sting length
-                # (since bouncer string will occupy that space so no need to update that part)
-                ori_steps = steps
-                steps -= (len(self.bouncestr) - 1)
-
-                if (int(progresspos / steps) % 2) == 0:
-                    ppos = progresspos % steps
-                    updatebouncestr = (
-                        " " if ppos != 0 else "") + self.bouncestr
-                    # corecting for space we added above
-                    ppos -= 1 if (ppos != 0) else 0
-                else:
-                    # corecting for space we added below (Note: This won't be conditional)
-                    ppos = steps - (progresspos % steps) - 1
-                    updatebouncestr = self.bouncestr + \
-                        (" " if ppos != (steps - 1) else "")
-
-                if refresh == True:
-                    sys.stdout.write("[" + (" " * ppos) + updatebouncestr + (
-                        " " * (ori_steps - ppos - (len(updatebouncestr)))) + "]")
-                    sys.stdout.flush()
-                else:
-                    # +1 for offseting '[' character
-                    cursor_right(ppos + 1)
-                    sys.stdout.write(updatebouncestr)
-                    sys.stdout.flush()
-
-            def finish(self, pre_msg, steps, success):
-                marker = "*" if success == True else "x"
-                sys.stdout.write("[" + marker * steps + "]")
-
-        class default_widget():
-            def __init__(self):
-                pass
-
-            def update(self, refresh, progresspos, steps):
-                if refresh == True:
-                    sys.stdout.write(
-                        "[" + "*" * progresspos + " " * (steps - progresspos) + "] ")
-                else:
-                    cursor_right(progresspos)
-                    sys.stdout.write("*")
-
-            def finish(self, msg, steps, success):
-                pass
-
     def __init__(self, width, tasks=[], header_required=True):
         self.tasklist = []
         self.tmtask = None
@@ -172,6 +18,11 @@ class cui():
         self.taskoffset = 1 if self.tmhdr_required else 0
         self.elements = []
         self.width = width
+        self.console = console.con()
+
+        if self.tmhdr_required:
+            self.tmtask = {"func": None, "args": None,
+                       "message": "", "element": None, "thread": None, "frame": self.console.registerframe()}
 
         for task in tasks:
             taskentry = {}
@@ -182,24 +33,9 @@ class cui():
             taskentry["id"] = self.noelements
             taskentry["title"] = "| task %d:" % self.noelements
             taskentry["failed"] = False
+            taskentry["frame"] = self.console.registerframe()
             self.tasklist.append(taskentry)
             self.noelements += 1
-
-    def register(self, func, args, title=""):
-        taskentry = {}
-        taskentry["func"] = func
-        taskentry["args"] = args
-        taskentry["message"] = "Starting"
-        taskentry["element"] = None
-        taskentry["thread"] = None
-        taskentry["failed"] = False
-        taskentry["id"] = self.noelements
-        if title == "":
-            taskentry["title"] = "| task %d:" % self.noelements
-        else:
-            taskentry["title"] = "| %s:" % title
-        self.tasklist.append(taskentry)
-        self.noelements += 1
 
     def __monitor(self, task):
         try:
@@ -215,68 +51,68 @@ class cui():
                 completed_task = self.noelements - len(tasklist)
                 msg = "# of tasks monitored %d/%d" % (
                     completed_task, len(tasklist) + completed_task)
-                self.tmtask["element"].update(
-                    int((completed_task / self.noelements) * 100), message=msg)
+                self.tmtask["frame"].status = self.tmtask["element"].construct(msg, completed_task)
             if len(tasklist) == 0:
                 if self.tmhdr_required:
-                    self.tmtask["element"].finish()
-                break
+                    self.tmtask["frame"].status = self.tmtask["element"].finish(msg)
+                    self.console.render()
+                    break
             for task in tasklist:
-                cursor_down(task["id"] + self.taskoffset)
-                cursor_leftmost()
-                task["element"].update(
-                    message=task["title"] + " " + task["message"])
+                msg = task["title"] + " " + task["message"]
+                shortmsg = textwrap.shorten(msg, width=self.width-13, placeholder="...")
+                task["frame"].status = task["element"].construct(shortmsg)
                 if not task["thread"].is_alive():
-                    cursor_leftmost()
-                    task["element"].finish(
-                        task["title"] + " " + task["message"], success=not task["failed"])
+                    task["frame"].status =  task["element"].finish(task["title"] + " " + "done", success=not task["failed"])
                     tasklist.remove(task)
-                cursor_up(task["id"] + self.taskoffset)
-                cursor_leftmost()
+            self.console.render()
+
+    def register(self, func, args, title=""):
+        taskentry = {}
+        taskentry["func"] = func
+        taskentry["args"] = args
+        taskentry["message"] = "Starting"
+        taskentry["element"] = None
+        taskentry["thread"] = None
+        taskentry["failed"] = False
+        taskentry["id"] = self.noelements
+        taskentry["frame"] = self.console.registerframe()
+        if title == "":
+            taskentry["title"] = "| task %d:" % self.noelements
+        else:
+            taskentry["title"] = "| %s:" % title
+        self.tasklist.append(taskentry)
+        self.noelements += 1
 
     def start(self):
-        print("")
-        clear_line()
-        noelements = self.noelements - 1
-        if self.tmhdr_required:
-            noelements += 1
-        sys.stdout.write("\n" * noelements)
-        sys.stdout.write("\033[%dA" % noelements)
-
-        # start = 0
-        # if self.tmhdr_required:
-        #     start = 1
-
         msg = "# of tasks monitored: %d" % len(self.tasklist)
-        element = self.__element(
-            msg, self.width, widget=self.__element.default_widget())
-        self.tmtask = {"func": None, "args": None,
-                       "message": msg, "element": element, "thread": None}
+        element = progressbar(self.width, max=len(self.tasklist))
+        self.tmtask["message"] = msg
+        self.tmtask["element"] = element
+
         thread = threading.Thread(
             target=self.__task_manager, args=(self.tasklist,))
         self.tmtask["thread"] = thread
 
-        for i in range(0, len(self.tasklist)):
-            element = self.__element("task %d: %s" % (
-                i, " starting"), self.width)
-            self.tasklist[i]["element"] = element
-            self.tasklist[i]["message"] = "starting"
-            thread = threading.Thread(
-                target=self.__monitor, args=(self.tasklist[i],))
-            self.tasklist[i]["thread"] = thread
-            thread.isDaemon = True
-            self.tasklist[i]["thread"].start()
+        for task in self.tasklist:
+            element = progressbar(self.width)
+            task["element"] = element
+            task["message"] = "starting"
+            thread = threading.Thread(target=self.__monitor, args=(task,))
+            task["thread"] = thread
+            task["thread"].isDaemon = True
+            task["thread"].start()
 
+        self.console.render()
         self.tmtask["thread"].start()
         self.tmtask["thread"].join()
+
 
     def finish(self):
         noelements = self.noelements - 1
         if self.tmhdr_required:
             noelements += 1
-        # set the cursor position to appropriate end location
-        cursor_leftmost()
-        cursor_down(noelements)
+        
+        self.console.finish(showall=True)
         print("")
 
 
@@ -294,22 +130,24 @@ if __name__ == "__main__":
     colorama.init()
     cursor.hide()
     cui = cui(80)
-    cui.register(test, (2,))
-    cui.register(test, (3,))
-    cui.register(test, (5,))
-    cui.register(test, (2,))
-    cui.register(test, (2,))
-    cui.register(test, (2,))
-    cui.register(test, (2,))
-    cui.register(test, (2,))
-    cui.register(test, (2,))
-    cui.register(test, (2,))
-    cui.register(test, (2,))
-    cui.register(test, (2,))
-    cui.register(test, (2,))
-    cui.register(test, (1,), title="custom title")
+    cui.register(test, (200,))
+    cui.register(test, (300,))
+    cui.register(test, (500,))
+    cui.register(test, (200,))
+    cui.register(test, (200,))
+    cui.register(test, (200,))
+    cui.register(test, (200,))
+    cui.register(test, (200,))
+    cui.register(test, (200,))
+    cui.register(test, (200,))
+    cui.register(test, (200,))
+    cui.register(test, (200,))
+    cui.register(test, (200,))
+    cui.register(test, (200,))
+    cui.register(test, (200,))
+    cui.register(test, (100,), title="custom title")
     cui.register(
-        test, (4,), title="custom title tooooooooooooooooooooooooooooooooooooooooooooo long")
+        test, (4,), title="custom title tooooooooooooooooooooooooooooooooooooooooooooooooo long")
     cui.start()
     cui.finish()
     cursor.show()
