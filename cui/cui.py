@@ -18,11 +18,12 @@ class cui():
         self.taskoffset = 1 if self.tmhdr_required else 0
         self.elements = []
         self.width = width
-        self.console = console.con()
+        self.console = console.con(port_update_rate=100)
 
         if self.tmhdr_required:
             self.tmtask = {"func": None, "args": None,
-                       "message": "", "element": None, "thread": None, "frame": self.console.registerframe()}
+                       "message": "", "element": None, "thread": None, 
+                       "frame": self.console.registerframe(isheader=True)}
 
         for task in tasks:
             taskentry = {}
@@ -130,22 +131,22 @@ if __name__ == "__main__":
     colorama.init()
     cursor.hide()
     cui = cui(80)
-    cui.register(test, (200,))
-    cui.register(test, (300,))
-    cui.register(test, (500,))
-    cui.register(test, (200,))
-    cui.register(test, (200,))
-    cui.register(test, (200,))
-    cui.register(test, (200,))
-    cui.register(test, (200,))
-    cui.register(test, (200,))
-    cui.register(test, (200,))
-    cui.register(test, (200,))
-    cui.register(test, (200,))
-    cui.register(test, (200,))
-    cui.register(test, (200,))
-    cui.register(test, (200,))
-    cui.register(test, (100,), title="custom title")
+    cui.register(test, (2,))
+    cui.register(test, (3,))
+    cui.register(test, (5,))
+    cui.register(test, (2,))
+    cui.register(test, (2,))
+    cui.register(test, (2,))
+    cui.register(test, (2,))
+    cui.register(test, (2,))
+    cui.register(test, (2,))
+    cui.register(test, (2,))
+    cui.register(test, (2,))
+    cui.register(test, (2,))
+    cui.register(test, (2,))
+    cui.register(test, (2,))
+    cui.register(test, (2,))
+    cui.register(test, (1,), title="custom title")
     cui.register(
         test, (4,), title="custom title tooooooooooooooooooooooooooooooooooooooooooooooooo long")
     cui.start()

@@ -2,7 +2,7 @@ import os
 import sys
 import difflib
 
-def cursor_up(x):
+def cursor_up(x=1):
     sys.stdout.write("\033[%dA" % x)
 
 
@@ -48,11 +48,16 @@ def clear_entire_line():
     sys.stdout.write("\033[2K")
 
 
+def clear_screen():
+    sys.stdout.write("\033[J")
+
+
 class _frame:
-    def __init__(self):
+    def __init__(self, header=False):
         self.visible = False
         self._status = ""
         self._content = ""
+        self.header = header
 
     def update(self):
         # No need to clear the entire screen
@@ -102,11 +107,14 @@ class _frame:
     status = property(_get_status, _set_status, _del_status)
 
 class _viewport:
-    def __init__(self, port_update_rate=3):
+    def __init__(self):
         self.frames = []
 
     def __len__(self):
         return len(self.frames)
+
+    def __getitem__(self, slice):
+        return self.frames[slice.start:slice.stop:slice.step]
 
     def __contains__(self, f):
         if f in self.frames:
@@ -126,37 +134,58 @@ class _viewport:
         frame.update(s)
 
 class con:
-    def __init__(self):
+    def __init__(self, port_update_rate=300, frame_update_rate=0.01):
         print("")
         self.viewport = _viewport()
         self.first = True
+        self.pur = port_update_rate
+        self.fur = frame_update_rate
+        self.frame_upcnt = 0
+        self.consheight = 0
+        self.headerframe = None
 
-    def registerframe(self):
-        frame = _frame()
-        self.viewport.append(frame)
+    def registerframe(self, isheader=False):
+        frame = _frame(header=isheader)
+        if isheader and self.headerframe != None:
+            raise Exception("Already a header frame is registered")
+        elif isheader:
+            self.headerframe = frame
+        else:
+            self.viewport.append(frame)
         return frame
 
     def render(self):
-        _, rows = os.get_terminal_size()
-        rows -= 1
-        if self.first:
-            frames = len(self.viewport)
-            vframes = frames if frames < rows else rows
+        # if self.frame_upcnt % self.pur == 0:
+        _, newheight = os.get_terminal_size()
+        if self.headerframe != None:
+            cursor_up()
+            self.headerframe.visible = True
+            self.headerframe.update()
+            cursor_down()
+            newheight -= 1
+        newheight -= 1
+        if newheight != self.consheight:
+            self.frame_upcnt = 0
+        noports = int(len(self.viewport) / newheight) + 1
+        viewportindex = int(self.frame_upcnt / self.pur)
+
+        si = (viewportindex % noports) * newheight
+        ei = si + newheight
+        if self.frame_upcnt % self.pur == 0:
+            clear_screen()
+            vframes = len(self.viewport) if len(self.viewport) < newheight else newheight
             sys.stdout.write('\n' * vframes)
             sys.stdout.flush()
             cursor_up(vframes)
-        self.first = False
-        # Assuming we are in the origin (relative)
-        i = 0
-        for frame in self.viewport:
-            if i < rows:
-                frame.visible = True
-                frame.update()
-                cursor_down()
-            else:
-                break
-            i += 1
-        cursor_up(i)
+        self.consheight = newheight
+        # Assuming we are in the origin (relative) excluding the headerframe
+        for frame in self.viewport[si:ei]:
+            frame.visible = True
+            frame.update()
+            cursor_down()
+
+        cursor_up(len(self.viewport[si:ei]))
+        self.frame_upcnt += 1
 
     def finish(self, showall=False):
         _, rows = os.get_terminal_size()
@@ -174,15 +203,19 @@ class con:
 
 if __name__ == "__main__":
     import time
-    con = con()
+    con = con(port_update_rate=10)
 
     frames=[]
-    for i in range(0, 15):
+    frame = con.registerframe(isheader=True)
+    frame.status = "Header"
+    frames.append(frame)
+
+    for i in range(1, 15):
         frames.append(con.registerframe())
 
     for j in range(0, 100):
-        for i in reversed(range(0, 15)):
-            frames[14-i].status = "Sathish %d" % i
+        for i in range(1, 15):
+            frames[15-i].status = "Sathish %d" % i
         con.render()
-        time.sleep(0.01)
+        time.sleep(0.1)
     con.finish(showall=True)
